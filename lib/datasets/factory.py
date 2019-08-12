@@ -15,6 +15,7 @@ from datasets.pascal_voc import pascal_voc
 from datasets.coco import coco
 from datasets.imagenet import imagenet
 from datasets.vg import vg
+from datasets.DOTA import dota
 
 import numpy as np
 
@@ -58,6 +59,11 @@ for split in ['train', 'val', 'val1', 'val2', 'test']:
     devkit_path = 'data/imagenet/ILSVRC/devkit'
     data_path = 'data/imagenet/ILSVRC'
     __sets[name] = (lambda split=split, devkit_path=devkit_path, data_path=data_path: imagenet(split,devkit_path,data_path))
+
+# Set up DOTA
+for split in ['train', 'val', 'test']:
+    name = 'DOTA_{}'.format(split)
+    __sets[name] = (lambda split=split : dota(split))
 
 def get_imdb(name):
   """Get an imdb (image database) by name."""

@@ -174,6 +174,10 @@ if __name__ == '__main__':
       args.imdb_name = "vg_150-50-50_minitrain"
       args.imdbval_name = "vg_150-50-50_minival"
       args.set_cfgs = ['ANCHOR_SCALES', '[4, 8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '50']
+  elif args.dataset == 'DOTA':  # TODO DOTA datasets
+      args.imdb_name = "DOTA_train"
+      args.imdbval_name = "DOTA_val"
+      args.set_cfgs = ['ANCHOR_SCALES', '[8, 16, 32]', 'ANCHOR_RATIOS', '[0.5, 1, 2]', 'MAX_NUM_GT_BOXES', '100']
 
   args.cfg_file = "cfgs/{}_ls.yml".format(args.net) if args.large_scale else "cfgs/{}.yml".format(args.net)
 
@@ -308,6 +312,15 @@ if __name__ == '__main__':
     data_iter = iter(dataloader)
     for step in range(iters_per_epoch):
       data = next(data_iter)
+
+      # print("data", data[0].size())
+      # print("im_info", data[1])
+      # print("gt_boxes", data[2])
+      # print("gt_boxes_o", data[4])
+      # print("num_boxes", data[3])
+
+      break
+
       with torch.no_grad():
               im_data.resize_(data[0].size()).copy_(data[0])
               im_info.resize_(data[1].size()).copy_(data[1])

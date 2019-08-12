@@ -11,7 +11,7 @@ from PIL import Image
 import torch
 
 from model.utils.config import cfg
-from roi_data_layer.minibatch import get_minibatch, get_minibatch
+from roi_data_layer.minibatch import get_minibatch
 from model.rpn.bbox_transform import bbox_transform_inv, clip_boxes
 
 import numpy as np
@@ -64,14 +64,24 @@ class roibatchLoader(data.Dataset):
     # here we set the anchor index to the last one
     # sample in this group
     minibatch_db = [self._roidb[index_ratio]]
+    # print("minibatch_db", minibatch_db)
     blobs = get_minibatch(minibatch_db, self._num_classes)
     data = torch.from_numpy(blobs['data'])
     im_info = torch.from_numpy(blobs['im_info'])
     # we need to random shuffle the bounding box.
     data_height, data_width = data.size(1), data.size(2)
     if self.training:
+        # use np.random instead of random for numpy array
+        randnum = np.random.randint(0, 1e6)
+        np.random.seed(randnum)
+        np.random.shuffle(blobs['gt_boxes_o'])
+        np.random.seed(randnum)
         np.random.shuffle(blobs['gt_boxes'])
+        gt_boxes_o = torch.from_numpy(blobs['gt_boxes_o'])
         gt_boxes = torch.from_numpy(blobs['gt_boxes'])
+
+        # np.random.shuffle(blobs['gt_boxes'])
+        # gt_boxes = torch.from_numpy(blobs['gt_boxes'])
 
         ########################################################
         # padding the input image to fixed size for each group #
@@ -122,6 +132,9 @@ class roibatchLoader(data.Dataset):
                 gt_boxes[:, 1].clamp_(0, trim_size - 1)
                 gt_boxes[:, 3].clamp_(0, trim_size - 1)
 
+                gt_boxes_o[:, 1::2] = gt_boxes_o[:, 1::2] - float(y_s)
+                gt_boxes_o[:, 1::2].clamp_(0, trim_size - 1)
+
             else:
                 # this means that data_width >> data_height, we need to crop the
                 # data_width
@@ -157,6 +170,9 @@ class roibatchLoader(data.Dataset):
                 gt_boxes[:, 0].clamp_(0, trim_size - 1)
                 gt_boxes[:, 2].clamp_(0, trim_size - 1)
 
+                gt_boxes_o[:, 0::2] = gt_boxes_o[:, 0::2] - float(x_s)
+                gt_boxes_o[:, 0::2].clamp_(0, trim_size - 1)
+
         # based on the ratio, padding the image.
         if ratio < 1:
             # this means that data_width < data_height
@@ -182,19 +198,24 @@ class roibatchLoader(data.Dataset):
             padding_data = data[0][:trim_size, :trim_size, :]
             # gt_boxes.clamp_(0, trim_size)
             gt_boxes[:, :4].clamp_(0, trim_size)
+            gt_boxes_o[:, :8].clamp_(0, trim_size)
             im_info[0, 0] = trim_size
             im_info[0, 1] = trim_size
 
 
         # check the bounding box:
-        not_keep = (gt_boxes[:,0] == gt_boxes[:,2]) | (gt_boxes[:,1] == gt_boxes[:,3])
+        not_keep = (gt_boxes[:, 0] == gt_boxes[:, 2]) | (gt_boxes[:, 1] == gt_boxes[:, 3])
         keep = torch.nonzero(not_keep == 0).view(-1)
 
         gt_boxes_padding = torch.FloatTensor(self.max_num_box, gt_boxes.size(1)).zero_()
+        gt_boxes_o_padding = torch.FloatTensor(self.max_num_box, gt_boxes_o.size(1)).zero_()
+
         if keep.numel() != 0:
             gt_boxes = gt_boxes[keep]
+            gt_boxes_o = gt_boxes_o[keep]
             num_boxes = min(gt_boxes.size(0), self.max_num_box)
             gt_boxes_padding[:num_boxes,:] = gt_boxes[:num_boxes]
+            gt_boxes_o_padding[:num_boxes,:] = gt_boxes_o[:num_boxes]
         else:
             num_boxes = 0
 
@@ -202,15 +223,16 @@ class roibatchLoader(data.Dataset):
         padding_data = padding_data.permute(2, 0, 1).contiguous()
         im_info = im_info.view(3)
 
-        return padding_data, im_info, gt_boxes_padding, num_boxes
+        return padding_data, im_info, gt_boxes_padding, num_boxes, gt_boxes_o_padding
     else:
         data = data.permute(0, 3, 1, 2).contiguous().view(3, data_height, data_width)
         im_info = im_info.view(3)
 
         gt_boxes = torch.FloatTensor([1,1,1,1,1])
+        gt_boxes_o = torch.FloatTensor([1,1,1,1,1,1,1,1,1])
         num_boxes = 0
 
-        return data, im_info, gt_boxes, num_boxes
+        return data, im_info, gt_boxes, num_boxes, gt_boxes_o
 
   def __len__(self):
     return len(self._roidb)
