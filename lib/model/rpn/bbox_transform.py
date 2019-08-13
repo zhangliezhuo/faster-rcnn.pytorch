@@ -11,6 +11,7 @@
 import torch
 import numpy as np
 import pdb
+from model.box_utils.iou_rotate import iou_rotate_calculate
 
 def bbox_transform(ex_rois, gt_rois):
     ex_widths = ex_rois[:, 2] - ex_rois[:, 0] + 1.0
@@ -32,9 +33,69 @@ def bbox_transform(ex_rois, gt_rois):
         (targets_dx, targets_dy, targets_dw, targets_dh),1)
 
     return targets
+def bbox_r_transform_batch(ex_rois, gt_rois):
+    if ex_rois.dim() == 2:
+        ex_widths = ex_rois[:, 2]
+        ex_heights = ex_rois[:, 3]
+        ex_ctr_x = ex_rois[:, 0]
+        ex_ctr_y = ex_rois[:, 1]
+        ex_angles = ex_rois[:, 4]
+
+        gt_widths = gt_rois[:, :, 2].clone()
+        gt_heights = gt_rois[:, :, 3].clone()
+        gt_ctr_x = gt_rois[:, :, 0]
+        gt_ctr_y = gt_rois[:, :, 1]
+        gt_angles = gt_rois[:, :, 4]
+        gt_widths[gt_widths==0] = 1
+        gt_heights[gt_heights==0] = 1
+        ex_widths[ex_widths==0] = 1
+        ex_heights[ex_heights==0] = 1
+        # print(gt_ctr_x)
+        # print(ex_ctr_x.contiguous().view(1, -1).expand_as(gt_ctr_x))
+        # print((gt_ctr_x - ex_ctr_x.contiguous().view(1, -1).expand_as(gt_ctr_x)))
+        targets_dx = (gt_ctr_x - ex_ctr_x.contiguous().view(1, -1).expand_as(gt_ctr_x)) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y.contiguous().view(1, -1).expand_as(gt_ctr_y)) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths.contiguous().view(1, -1).expand_as(gt_widths))
+        targets_dh = torch.log(gt_heights / ex_heights.contiguous().view(1, -1).expand_as(gt_heights))
+        targets_da = (gt_angles - ex_angles.contiguous().view(1, -1).expand_as(gt_angles)) * np.pi / 180
+
+    elif ex_rois.dim() == 3:
+        ex_widths = ex_rois[:, :, 2]
+        ex_heights = ex_rois[:, :, 3]
+        ex_ctr_x = ex_rois[:, :, 0]
+        ex_ctr_y = ex_rois[:, :, 1]
+        ex_angles = ex_rois[:, :, 4]
+
+        gt_widths = gt_rois[:, :, 2].clone()
+        gt_heights = gt_rois[:, :, 3].clone()
+        gt_ctr_x = gt_rois[:, :, 0]
+        gt_ctr_y = gt_rois[:, :, 1]
+        gt_angles = gt_rois[:, :, 4]
+
+        gt_widths[gt_widths==0] = 1
+        gt_heights[gt_heights==0] = 1
+        ex_widths[ex_widths==0] = 1
+        ex_heights[ex_heights==0] = 1
+
+        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths)
+        targets_dh = torch.log(gt_heights / ex_heights)
+        targets_da = (gt_angles - ex_angles) * np.pi / 180
+    else:
+        raise ValueError('ex_roi input dimension is not correct.')
+    # print("targets_dx,", np.unique(targets_dx.cpu().numpy()))
+    # print("targets_dy,", np.unique(targets_dy.cpu().numpy()))
+    # print("targets_dw,", np.unique(targets_dw.cpu().numpy()))
+    # print("targets_dh,", np.unique(targets_dh.cpu().numpy()))
+    # print("targets_da,", np.unique(targets_da.cpu().numpy()))
+
+    targets = torch.stack(
+        (targets_dx, targets_dy, targets_dw, targets_dh, targets_da), 2)
+    # print("target,", np.unique(targets.cpu().numpy()))
+    return targets
 
 def bbox_transform_batch(ex_rois, gt_rois):
-
     if ex_rois.dim() == 2:
         ex_widths = ex_rois[:, 2] - ex_rois[:, 0] + 1.0
         ex_heights = ex_rois[:, 3] - ex_rois[:, 1] + 1.0
@@ -212,6 +273,7 @@ def clip_boxes_r(boxes, im_shape, batch_size):
                 boxes[i, j] = torch.FloatTensor([0, 0, 0, 0 ,0])
             else:
                 boxes[i, j] = torch.FloatTensor([x, y, w, h ,a])
+
     return boxes
 
 def bbox_overlaps(anchors, gt_boxes):
@@ -335,4 +397,46 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     else:
         raise ValueError('anchors input dimension is not correct.')
 
+    return overlaps
+
+
+def bbox_r_overlaps_batch(anchors, gt_boxes):
+    """
+    anchors: (N, 5) ndarray of float
+    gt_boxes: (b, K, 6) ndarray of float
+
+    overlaps: (N, K) ndarray of overlap between boxes and query_boxes
+    """
+    batch_size = gt_boxes.size(0)
+
+
+    if anchors.dim() == 2:
+
+        N = anchors.size(0)
+        K = gt_boxes.size(1)
+
+        anchors = anchors.view(1, N, 5).expand(batch_size, N, 5).contiguous()
+        gt_boxes = gt_boxes[:,:,:5].contiguous()
+        overlaps = torch.Tensor(batch_size, N, K).fill_(0).type_as(gt_boxes)
+        for b in range(gt_boxes.size(0)):
+            overlap = iou_rotate_calculate(anchors[b], gt_boxes[b])
+            overlaps[b] = overlap
+
+    elif anchors.dim() == 3:
+        N = anchors.size(1)
+        K = gt_boxes.size(1)
+
+        if anchors.size(2) == 5:
+            anchors = anchors[:,:,:5].contiguous()
+        else:
+            anchors = anchors[:,:,1:].contiguous()
+
+        gt_boxes = gt_boxes[:,:,:5].contiguous()
+        overlaps = torch.Tensor(batch_size, N, K).fill_(0).type_as(gt_boxes)
+        for b in range(gt_boxes.size(0)):
+            overlap = iou_rotate_calculate(anchors[b], gt_boxes[b])
+            overlaps[b] = overlap
+
+    else:
+        raise ValueError('anchors input dimension is not correct.')
     return overlaps

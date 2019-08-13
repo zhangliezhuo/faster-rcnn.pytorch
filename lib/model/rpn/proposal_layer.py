@@ -247,7 +247,9 @@ class _ProposalLayer_r(nn.Module):
 
         self._anchors = self._anchors.type_as(scores)
         # anchors = self._anchors.view(1, A, 4) + shifts.view(1, K, 4).permute(1, 0, 2).contiguous()
+        # print(self._anchors.view(1, A, 5))
         anchors = self._anchors.view(1, A, 5) + shifts.view(K, 1, 5)
+        # print(anchors)
         anchors = anchors.view(1, K * A, 5).expand(batch_size, K * A, 5)
 
         # Transpose and reshape predicted bbox transformations to get them

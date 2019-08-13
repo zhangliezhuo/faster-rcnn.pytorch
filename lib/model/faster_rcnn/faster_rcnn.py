@@ -52,7 +52,9 @@ class _fasterRCNN(nn.Module):
         base_feat = self.RCNN_base(im_data)
 
         # feed base feature map tp RPN to obtain rois
-        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(base_feat, im_info, gt_boxes, num_boxes, gt_boxes_r)
+        rois, rpn_loss_cls, rpn_loss_bbox,\
+         rois_r, rpn_loss_cls_r, rpn_loss_bbox_r = self.RCNN_rpn(base_feat, im_info, gt_boxes, num_boxes, gt_boxes_r)
+
 
         # if it is training phrase, then use ground trubut bboxes for refining
         if self.training:

@@ -6,7 +6,7 @@ from torch.autograd import Variable
 
 from model.utils.config import cfg
 from .proposal_layer import _ProposalLayer, _ProposalLayer_r
-from .anchor_target_layer import _AnchorTargetLayer
+from .anchor_target_layer import _AnchorTargetLayer, _AnchorTargetLayer_r
 from model.utils.net_utils import _smooth_l1_loss
 
 import numpy as np
@@ -50,6 +50,9 @@ class _RPN(nn.Module):
 
         # define anchor target layer
         self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
+
+        # define rotated anchor target layer
+        self.RPN_anchor_r_target = _AnchorTargetLayer_r(self.feat_stride, self.anchor_scales, self.anchor_ratios, self.anchor_angles)
 
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0
@@ -99,18 +102,18 @@ class _RPN(nn.Module):
         rois_r = self.RPN_proposal_r((rpn_cls_prob_r.data, rpn_bbox_r_pred.data,
                                     im_info, cfg_key))
 
-        print(rois[0][0])
-
-        print(rois_r[0][0])
-
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0
+        self.rpn_loss_cls_r = 0
+        self.rpn_loss_box_r = 0
 
         # generating training labels and build the rpn loss
         if self.training:
             assert gt_boxes is not None
 
             rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info, num_boxes))
+            rpn_data_r = self.RPN_anchor_r_target((rpn_cls_score_r.data, gt_boxes_o, im_info, num_boxes))
+
 
             # compute classification loss
             rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
@@ -122,6 +125,17 @@ class _RPN(nn.Module):
             rpn_label = Variable(rpn_label.long())
             self.rpn_loss_cls = F.cross_entropy(rpn_cls_score, rpn_label)
             fg_cnt = torch.sum(rpn_label.data.ne(0))
+            # compute classification rpn_cls_score_r_reshape for rotated box
+            rpn_cls_score_r = rpn_cls_score_r_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
+            rpn_label_r = rpn_data_r[0].view(batch_size, -1)
+
+            rpn_keep_r = Variable(rpn_label_r.view(-1).ne(-1).nonzero().view(-1))
+            rpn_cls_score_r = torch.index_select(rpn_cls_score_r.view(-1,2), 0, rpn_keep_r)
+            rpn_label_r = torch.index_select(rpn_label_r.view(-1), 0, rpn_keep_r.data)
+            rpn_label_r = Variable(rpn_label_r.long())
+            self.rpn_loss_cls_r = F.cross_entropy(rpn_cls_score_r, rpn_label_r)
+            fg_cnt_r = torch.sum(rpn_label_r.data.ne(0))
+
 
             rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = rpn_data[1:]
 
@@ -133,4 +147,13 @@ class _RPN(nn.Module):
             self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,
                                                             rpn_bbox_outside_weights, sigma=3, dim=[1,2,3])
 
-        return rois, self.rpn_loss_cls, self.rpn_loss_box
+            rpn_bbox_r_targets, rpn_bbox_r_inside_weights, rpn_bbox_r_outside_weights = rpn_data_r[1:]
+            # compute rotated bbox regression loss
+            rpn_bbox_r_inside_weights = Variable(rpn_bbox_r_inside_weights)
+            rpn_bbox_r_outside_weights = Variable(rpn_bbox_r_outside_weights)
+            rpn_bbox_r_targets = Variable(rpn_bbox_r_targets)
+
+            self.rpn_loss_box_r = _smooth_l1_loss(rpn_bbox_r_pred, rpn_bbox_r_targets, rpn_bbox_r_inside_weights,
+                                                rpn_bbox_r_outside_weights, sigma=3, dim=[1,2,3])
+
+        return rois, self.rpn_loss_cls, self.rpn_loss_box, rois_r, self.rpn_loss_cls_r, self.rpn_loss_box_r
