@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 from model.utils.config import cfg
-from .proposal_layer import _ProposalLayer
+from .proposal_layer import _ProposalLayer, _ProposalLayer_r
 from .anchor_target_layer import _AnchorTargetLayer
 from model.utils.net_utils import _smooth_l1_loss
 
@@ -22,6 +22,7 @@ class _RPN(nn.Module):
         self.din = din  # get depth of input feature map, e.g., 512
         self.anchor_scales = cfg.ANCHOR_SCALES
         self.anchor_ratios = cfg.ANCHOR_RATIOS
+        self.anchor_angles = cfg.ANCHOR_ANGLES
         self.feat_stride = cfg.FEAT_STRIDE[0]
 
         # define the convrelu layers processing input feature map
@@ -35,8 +36,17 @@ class _RPN(nn.Module):
         self.nc_bbox_out = len(self.anchor_scales) * len(self.anchor_ratios) * 4 # 4(coords) * 9 (anchors)
         self.RPN_bbox_pred = nn.Conv2d(512, self.nc_bbox_out, 1, 1, 0)
 
+        # define bg/fg classifcation score layer
+        self.nc_score_r_out = len(self.anchor_angles) * len(self.anchor_scales) * len(self.anchor_ratios) * 2 # 2(bg/fg) * 9 (anchors)
+        self.RPN_cls_score_r = nn.Conv2d(512, self.nc_score_r_out, 1, 1, 0)
+        # define anchor rotated box offset prediction layer
+        self.nc_bbox_r_out = len(self.anchor_angles) * len(self.anchor_scales) * len(self.anchor_ratios) * 5 # 5(coords) * 9 (anchors)
+        self.RPN_bbox_r_pred = nn.Conv2d(512, self.nc_bbox_r_out, 1, 1, 0)
+
         # define proposal layer
         self.RPN_proposal = _ProposalLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
+
+        self.RPN_proposal_r = _ProposalLayer_r(self.feat_stride, self.anchor_scales, self.anchor_ratios, self.anchor_angles)
 
         # define anchor target layer
         self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
@@ -55,7 +65,7 @@ class _RPN(nn.Module):
         )
         return x
 
-    def forward(self, base_feat, im_info, gt_boxes, num_boxes):
+    def forward(self, base_feat, im_info, gt_boxes, num_boxes, gt_boxes_o):
 
         batch_size = base_feat.size(0)
 
@@ -68,14 +78,30 @@ class _RPN(nn.Module):
         rpn_cls_prob_reshape = F.softmax(rpn_cls_score_reshape, 1)
         rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
 
+        # get rpn classification score for rotated
+        rpn_cls_score_r = self.RPN_cls_score_r(rpn_conv1)
+
+        rpn_cls_score_r_reshape = self.reshape(rpn_cls_score_r, 2)
+        rpn_cls_prob_r_reshape = F.softmax(rpn_cls_score_r_reshape, 1)
+        rpn_cls_prob_r = self.reshape(rpn_cls_prob_r_reshape, self.nc_score_r_out)
+
         # get rpn offsets to the anchor boxes
         rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
 
+        # get rpn offsets to the rotated anchor boxes
+        rpn_bbox_r_pred = self.RPN_bbox_r_pred(rpn_conv1)
+
         # proposal layer
         cfg_key = 'TRAIN' if self.training else 'TEST'
-
         rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
                                  im_info, cfg_key))
+
+        rois_r = self.RPN_proposal_r((rpn_cls_prob_r.data, rpn_bbox_r_pred.data,
+                                    im_info, cfg_key))
+
+        print(rois[0][0])
+
+        print(rois_r[0][0])
 
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0

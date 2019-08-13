@@ -102,6 +102,40 @@ def bbox_transform_inv(boxes, deltas, batch_size):
 
     return pred_boxes
 
+def bbox_r_transform_inv(boxes, deltas, batch_size):
+    widths = boxes[:, :, 2]
+    heights = boxes[:, :, 3]
+    ctr_x = boxes[:, :, 0]
+    ctr_y = boxes[:, :, 1]
+    angles = boxes[:, :, 4]
+
+    dx = deltas[:, :, 0::5]
+    dy = deltas[:, :, 1::5]
+    dw = deltas[:, :, 2::5]
+    dh = deltas[:, :, 3::5]
+    da = deltas[:, :, 4::5]
+
+    pred_ctr_x = dx * widths.unsqueeze(2) + ctr_x.unsqueeze(2)
+    pred_ctr_y = dy * heights.unsqueeze(2) + ctr_y.unsqueeze(2)
+    pred_w = torch.exp(dw) * widths.unsqueeze(2)
+    pred_h = torch.exp(dh) * heights.unsqueeze(2)
+    pred_a = torch.exp(da) * angles.unsqueeze(2)
+
+    pred_boxes = deltas.clone()
+    # x
+    pred_boxes[:, :, 0::5] = pred_ctr_x
+    # y
+    pred_boxes[:, :, 1::5] = pred_ctr_y
+    # w
+    pred_boxes[:, :, 2::5] = pred_w
+    # h
+    pred_boxes[:, :, 3::5] = pred_h
+    # a
+    pred_boxes[:, :, 4::5] = pred_a
+
+
+    return pred_boxes
+
 def clip_boxes_batch(boxes, im_shape, batch_size):
     """
     Clip boxes to image boundaries.
@@ -132,6 +166,53 @@ def clip_boxes(boxes, im_shape, batch_size):
 
     return boxes
 
+def clip_boxes_r(boxes, im_shape, batch_size):
+    from model.utils.bbox_convert import convert_r_to_o
+    import cv2
+    for i in range(batch_size):
+        boxes_o = convert_r_to_o(boxes[i])
+
+        inside_boxes_index = (
+            (boxes_o[:, 0] >= 0) &
+            (boxes_o[:, 1] >= 0) &
+            (boxes_o[:, 2] >= 0) &
+            (boxes_o[:, 3] >= 0) & 
+            (boxes_o[:, 4] >= 0) &
+            (boxes_o[:, 5] >= 0) &
+            (boxes_o[:, 6] >= 0) &
+            (boxes_o[:, 7] >= 0) & 
+            (boxes_o[:, 0] < im_shape[i, 1]) &
+            (boxes_o[:, 1] < im_shape[i, 0]) &
+            (boxes_o[:, 2] < im_shape[i, 1]) &
+            (boxes_o[:, 3] < im_shape[i, 0]) & 
+            (boxes_o[:, 4] < im_shape[i, 1]) &
+            (boxes_o[:, 5] < im_shape[i, 0]) &
+            (boxes_o[:, 6] < im_shape[i, 1]) &
+            (boxes_o[:, 7] < im_shape[i, 0])
+        )
+        border_boxes_index = torch.nonzero(inside_boxes_index).view(-1)
+
+        # print(boxes_o)
+
+        boxes_o[:, 0::2].clamp_(0, im_shape[i, 1]-1)
+        boxes_o[:, 1::2].clamp_(0, im_shape[i, 0]-1)
+        # print(boxes_o)
+
+        for j in range(boxes_o.size(0)):
+            if j in border_boxes_index:
+                continue
+            box = boxes_o[j].view(-1, 2)
+            # print(box)
+            box = box.cpu().numpy()
+            rect = cv2.minAreaRect(box)
+            x, y = rect[0]
+            w, h = rect[1]
+            a = rect[2]
+            if w <= 0 or h <= 0:
+                boxes[i, j] = torch.FloatTensor([0, 0, 0, 0 ,0])
+            else:
+                boxes[i, j] = torch.FloatTensor([x, y, w, h ,a])
+    return boxes
 
 def bbox_overlaps(anchors, gt_boxes):
     """

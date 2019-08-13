@@ -294,6 +294,9 @@ __C.ANCHOR_SCALES = [8,16,32]
 # Anchor ratios for RPN
 __C.ANCHOR_RATIOS = [0.5,1,2]
 
+# Anchor angles for RPN
+__C.ANCHOR_ANGLES = [-15, -30, -45, -60, -75, -90]
+
 # Feature stride for RPN
 __C.FEAT_STRIDE = [16, ]
 

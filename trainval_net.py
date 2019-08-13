@@ -29,6 +29,7 @@ from roi_data_layer.roibatchLoader import roibatchLoader
 from model.utils.config import cfg, cfg_from_file, cfg_from_list, get_output_dir
 from model.utils.net_utils import weights_normal_init, save_net, load_net, \
       adjust_learning_rate, save_checkpoint, clip_gradient
+from model.utils.bbox_convert import convert_o_to_r
 
 from model.faster_rcnn.vgg16 import vgg16
 from model.faster_rcnn.resnet import resnet
@@ -220,6 +221,8 @@ if __name__ == '__main__':
   im_info = torch.FloatTensor(1)
   num_boxes = torch.LongTensor(1)
   gt_boxes = torch.FloatTensor(1)
+  gt_boxes_o = torch.FloatTensor(1)
+  gt_boxes_r = torch.FloatTensor(1)
 
   # ship to cuda
   if args.cuda:
@@ -227,12 +230,16 @@ if __name__ == '__main__':
     im_info = im_info.cuda()
     num_boxes = num_boxes.cuda()
     gt_boxes = gt_boxes.cuda()
+    gt_boxes_o = gt_boxes_o.cuda()
+    gt_boxes_r = gt_boxes_r.cuda()
 
   # make variable
   im_data = Variable(im_data)
   im_info = Variable(im_info)
   num_boxes = Variable(num_boxes)
   gt_boxes = Variable(gt_boxes)
+  gt_boxes_o = Variable(gt_boxes_o)
+  gt_boxes_r = Variable(gt_boxes_r)
 
   if args.cuda:
     cfg.CUDA = True
@@ -312,6 +319,8 @@ if __name__ == '__main__':
     data_iter = iter(dataloader)
     for step in range(iters_per_epoch):
       data = next(data_iter)
+      # convert to rotated bbox
+      _gt_boxes_r = convert_o_to_r(data[4])
 
       # print("data", data[0].size())
       # print("im_info", data[1])
@@ -319,19 +328,19 @@ if __name__ == '__main__':
       # print("gt_boxes_o", data[4])
       # print("num_boxes", data[3])
 
-      break
-
       with torch.no_grad():
               im_data.resize_(data[0].size()).copy_(data[0])
               im_info.resize_(data[1].size()).copy_(data[1])
               gt_boxes.resize_(data[2].size()).copy_(data[2])
               num_boxes.resize_(data[3].size()).copy_(data[3])
+              gt_boxes_o.resize_(data[4].size()).copy_(data[4])
+              gt_boxes_r.resize_(_gt_boxes_r.size()).copy_(_gt_boxes_r)
 
       fasterRCNN.zero_grad()
       rois, cls_prob, bbox_pred, \
       rpn_loss_cls, rpn_loss_box, \
       RCNN_loss_cls, RCNN_loss_bbox, \
-      rois_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes)
+      rois_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, gt_boxes_r)
 
       loss = rpn_loss_cls.mean() + rpn_loss_box.mean() \
            + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean()
