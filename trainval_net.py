@@ -327,12 +327,6 @@ if __name__ == '__main__':
       # convert to rotated bbox
       _gt_boxes_r = convert_o_to_r(data[4])
 
-      # print("data", data[0].size())
-      # print("im_info", data[1])
-      # print("gt_boxes", data[2])
-      # print("gt_boxes_o", data[4])
-      # print("num_boxes", data[3])
-
       with torch.no_grad():
               im_data.resize_(data[0].size()).copy_(data[0])
               im_info.resize_(data[1].size()).copy_(data[1])
@@ -343,26 +337,30 @@ if __name__ == '__main__':
 
       fasterRCNN.zero_grad()
 
+      # fasterRCNN_start = time.time()
       rois, cls_prob, bbox_pred, \
       rpn_loss_cls, rpn_loss_box, \
       RCNN_loss_cls, RCNN_loss_bbox, \
       rois_label, \
       rois_r, cls_r_prob, bbox_r_pred, \
-      rpn_loss_cls_r, rpn_loss_bbox_r, \
+      rpn_loss_cls_r, rpn_loss_box_r, \
       RCNN_loss_cls_r, RCNN_loss_bbox_r, \
       rois_r_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, gt_boxes_r)
+      # print("fasterRCNN time:", time.time() - fasterRCNN_start)
 
-      if args.rotated:
-        rois, cls_prob, bbox_pred, \
-      rpn_loss_cls, rpn_loss_box, \
-      RCNN_loss_cls, RCNN_loss_bbox, \
-      rois_label = rois_r, cls_r_prob, bbox_r_pred, \
-      rpn_loss_cls_r, rpn_loss_bbox_r, \
-      RCNN_loss_cls_r, RCNN_loss_bbox_r, \
-      rois_r_label
+      # if args.rotated:
+      #   rois, cls_prob, bbox_pred, \
+      # rpn_loss_cls, rpn_loss_box, \
+      # RCNN_loss_cls, RCNN_loss_bbox, \
+      # rois_label = rois_r, cls_r_prob, bbox_r_pred, \
+      # rpn_loss_cls_r, rpn_loss_bbox_r, \
+      # RCNN_loss_cls_r, RCNN_loss_bbox_r, \
+      # rois_r_label
 
       loss = rpn_loss_cls.mean() + rpn_loss_box.mean() \
-           + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean()
+           + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean() \
+           + rpn_loss_cls_r.mean() + rpn_loss_box_r.mean() \
+           + RCNN_loss_bbox_r.mean() + RCNN_loss_bbox_r.mean()
       loss_temp += loss.item()
 
 
@@ -385,6 +383,13 @@ if __name__ == '__main__':
           loss_rcnn_box = RCNN_loss_bbox.mean().item()
           fg_cnt = torch.sum(rois_label.data.ne(0))
           bg_cnt = rois_label.data.numel() - fg_cnt
+
+          loss_rpn_cls_r = rpn_loss_cls_r.mean().item()
+          loss_rpn_box_r = rpn_loss_box_r.mean().item()
+          loss_rcnn_cls_r = RCNN_loss_cls_r.mean().item()
+          loss_rcnn_box_r = RCNN_loss_bbox_r.mean().item()
+          fg_cnt_r = torch.sum(rois_r_label.data.ne(0))
+          bg_cnt_r = rois_r_label.data.numel() - fg_cnt_r
         else:
           loss_rpn_cls = rpn_loss_cls.item()
           loss_rpn_box = rpn_loss_box.item()
@@ -393,18 +398,33 @@ if __name__ == '__main__':
           fg_cnt = torch.sum(rois_label.data.ne(0))
           bg_cnt = rois_label.data.numel() - fg_cnt
 
+          loss_rpn_cls_r = rpn_loss_cls_r.item()
+          loss_rpn_box_r = rpn_loss_box_r.item()
+          loss_rcnn_cls_r = RCNN_loss_cls_r.item()
+          loss_rcnn_box_r = RCNN_loss_bbox_r.item()
+          fg_cnt_r = torch.sum(rois_r_label.data.ne(0))
+          bg_cnt_r = rois_r_label.data.numel() - fg_cnt_r
+
         print("[session %d][epoch %2d][iter %4d/%4d] loss: %.4f, lr: %.2e" \
                                 % (args.session, epoch, step, iters_per_epoch, loss_temp, lr))
         print("\t\t\tfg/bg=(%d/%d), time cost: %f" % (fg_cnt, bg_cnt, end-start))
+        print("\t\trotated fg/bg=(%d/%d), time cost: %f" % (fg_cnt_r, bg_cnt_r, end-start))
+
         print("\t\t\trpn_cls: %.4f, rpn_box: %.4f, rcnn_cls: %.4f, rcnn_box %.4f" \
                       % (loss_rpn_cls, loss_rpn_box, loss_rcnn_cls, loss_rcnn_box))
+        print("\t\trotated rpn_cls: %.4f, rpn_box: %.4f, rcnn_cls: %.4f, rcnn_box %.4f" \
+              % (loss_rpn_cls_r, loss_rpn_box_r, loss_rcnn_cls_r, loss_rcnn_box_r))
         if args.use_tfboard:
           info = {
             'loss': loss_temp,
             'loss_rpn_cls': loss_rpn_cls,
             'loss_rpn_box': loss_rpn_box,
             'loss_rcnn_cls': loss_rcnn_cls,
-            'loss_rcnn_box': loss_rcnn_box
+            'loss_rcnn_box': loss_rcnn_box,
+            'loss_rpn_cls_r': loss_rpn_cls_r,
+            'loss_rpn_box_r': loss_rpn_box_r,
+            'loss_rcnn_cls_r': loss_rcnn_cls_r,
+            'loss_rcnn_box_r': loss_rcnn_box_r
           }
           logger.add_scalars("logs_s_{}/losses".format(args.session), info, (epoch - 1) * iters_per_epoch + step)
 

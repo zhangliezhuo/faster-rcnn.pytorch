@@ -65,7 +65,6 @@ class _fasterRCNN(nn.Module):
             rois_target = Variable(rois_target.view(-1, rois_target.size(2)))
             rois_inside_ws = Variable(rois_inside_ws.view(-1, rois_inside_ws.size(2)))
             rois_outside_ws = Variable(rois_outside_ws.view(-1, rois_outside_ws.size(2)))
-
             roi_data_r = self.RCNN_proposal_target_r(rois_r, gt_boxes_r, num_boxes)
             rois_r, rois_r_label, rois_r_target, rois_r_inside_ws, rois_r_outside_ws = roi_data_r
 
@@ -91,7 +90,6 @@ class _fasterRCNN(nn.Module):
         from model.utils.bbox_convert import convert_r_to_h
         rois_rh = convert_r_to_h(rois_r)
         # print(rois_rh.size())
-
         rois = Variable(rois)
         rois_r = Variable(rois_r)
         # do roi pooling based on predicted rois
@@ -144,8 +142,8 @@ class _fasterRCNN(nn.Module):
             # classification loss rotated
             RCNN_loss_cls_r = F.cross_entropy(cls_r_score, rois_r_label)
             # bounding box regression L1 loss
+            # print(rois_r_inside_ws)
             RCNN_loss_bbox_r = _smooth_l1_loss(bbox_r_pred, rois_r_target, rois_r_inside_ws, rois_r_outside_ws)
-
 
         cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
         bbox_pred = bbox_pred.view(batch_size, rois.size(1), -1)

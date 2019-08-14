@@ -232,6 +232,7 @@ def clip_boxes_r(boxes, im_shape, batch_size):
     for i in range(batch_size):
         boxes_o = convert_r_to_o(boxes[i])
 
+        #### cv2.minAreaRect method is very slow
         inside_boxes_index = (
             (boxes_o[:, 0] >= 0) &
             (boxes_o[:, 1] >= 0) &
@@ -251,9 +252,7 @@ def clip_boxes_r(boxes, im_shape, batch_size):
             (boxes_o[:, 7] < im_shape[i, 0])
         )
         border_boxes_index = torch.nonzero(inside_boxes_index).view(-1)
-
-        # print(boxes_o)
-
+        
         boxes_o[:, 0::2].clamp_(0, im_shape[i, 1]-1)
         boxes_o[:, 1::2].clamp_(0, im_shape[i, 0]-1)
         # print(boxes_o)

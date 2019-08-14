@@ -22,6 +22,7 @@ from .bbox_transform import bbox_transform_inv, clip_boxes, clip_boxes_batch, bb
 from model.box_utils.nms_rotate import nms_rotate
 from model.roi_layers import nms
 import pdb
+import time
 
 DEBUG = False
 
@@ -266,7 +267,8 @@ class _ProposalLayer_r(nn.Module):
         proposals = bbox_r_transform_inv(anchors, bbox_deltas, batch_size)
 
         # 2. clip predicted boxes to image
-        proposals = clip_boxes_r(proposals, im_info, batch_size)
+        # method is too slow
+        # proposals = clip_boxes_r(proposals, im_info, batch_size)
         # proposals = clip_boxes_batch(proposals, im_info, batch_size)
 
         # assign the score to 0 if it's non keep.

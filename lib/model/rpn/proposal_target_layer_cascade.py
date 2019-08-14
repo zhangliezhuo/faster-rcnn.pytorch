@@ -218,7 +218,7 @@ class _ProposalTargetLayer_r(nn.Module):
         self._num_classes = nclasses
         self.BBOX_NORMALIZE_MEANS = torch.FloatTensor((0.0, 0.0, 0.0, 0.0, 0.0))
         self.BBOX_NORMALIZE_STDS = torch.FloatTensor((0.1, 0.1, 0.1, 0.1, 0.1))
-        self.BBOX_INSIDE_WEIGHTS = torch.FloatTensor((0.0, 0.0, 0.0, 0.0, 0.0))
+        self.BBOX_INSIDE_WEIGHTS = torch.FloatTensor((1., 1., 1., 1., 1.))
 
     def forward(self, all_rois, gt_boxes, num_boxes):
 
