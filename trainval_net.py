@@ -116,6 +116,10 @@ def parse_args():
   parser.add_argument('--use_tfb', dest='use_tfboard',
                       help='whether use tensorboard',
                       action='store_true')
+  # whether use rotated 
+  parser.add_argument('--rotated', dest='rotated',
+                      help='whether use rotated',
+                      action='store_true')
 
   args = parser.parse_args()
   return args
@@ -310,6 +314,7 @@ if __name__ == '__main__':
     # setting to train mode
     fasterRCNN.train()
     loss_temp = 0
+
     start = time.time()
 
     if epoch % (args.lr_decay_step + 1) == 0:
@@ -337,14 +342,29 @@ if __name__ == '__main__':
               gt_boxes_r.resize_(_gt_boxes_r.size()).copy_(_gt_boxes_r)
 
       fasterRCNN.zero_grad()
+
       rois, cls_prob, bbox_pred, \
       rpn_loss_cls, rpn_loss_box, \
       RCNN_loss_cls, RCNN_loss_bbox, \
-      rois_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, gt_boxes_r)
+      rois_label, \
+      rois_r, cls_r_prob, bbox_r_pred, \
+      rpn_loss_cls_r, rpn_loss_bbox_r, \
+      RCNN_loss_cls_r, RCNN_loss_bbox_r, \
+      rois_r_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, gt_boxes_r)
+
+      if args.rotated:
+        rois, cls_prob, bbox_pred, \
+      rpn_loss_cls, rpn_loss_box, \
+      RCNN_loss_cls, RCNN_loss_bbox, \
+      rois_label = rois_r, cls_r_prob, bbox_r_pred, \
+      rpn_loss_cls_r, rpn_loss_bbox_r, \
+      RCNN_loss_cls_r, RCNN_loss_bbox_r, \
+      rois_r_label
 
       loss = rpn_loss_cls.mean() + rpn_loss_box.mean() \
            + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean()
       loss_temp += loss.item()
+
 
       # backward
       optimizer.zero_grad()

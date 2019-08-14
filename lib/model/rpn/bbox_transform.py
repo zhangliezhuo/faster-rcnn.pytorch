@@ -132,7 +132,6 @@ def bbox_transform_batch(ex_rois, gt_rois):
 
     targets = torch.stack(
         (targets_dx, targets_dy, targets_dw, targets_dh),2)
-
     return targets
 
 def bbox_transform_inv(boxes, deltas, batch_size):
@@ -422,6 +421,15 @@ def bbox_r_overlaps_batch(anchors, gt_boxes):
             overlap = iou_rotate_calculate(anchors[b], gt_boxes[b])
             overlaps[b] = overlap
 
+        gt_boxes_x = gt_boxes[:,:,2]
+        gt_boxes_y = gt_boxes[:,:,3]
+        anchors_boxes_x = anchors[:,:,2]
+        anchors_boxes_y = anchors[:,:,3]
+        gt_area_zero = (gt_boxes_x == 0) & (gt_boxes_y == 0)
+        anchors_area_zero = (anchors_boxes_x == 0) & (anchors_boxes_y == 0)
+
+        overlaps.masked_fill_(gt_area_zero.view(batch_size, 1, K).expand(batch_size, N, K), 0)
+        overlaps.masked_fill_(anchors_area_zero.view(batch_size, N, 1).expand(batch_size, N, K), -1)
     elif anchors.dim() == 3:
         N = anchors.size(1)
         K = gt_boxes.size(1)
@@ -430,13 +438,21 @@ def bbox_r_overlaps_batch(anchors, gt_boxes):
             anchors = anchors[:,:,:5].contiguous()
         else:
             anchors = anchors[:,:,1:].contiguous()
-
         gt_boxes = gt_boxes[:,:,:5].contiguous()
         overlaps = torch.Tensor(batch_size, N, K).fill_(0).type_as(gt_boxes)
         for b in range(gt_boxes.size(0)):
             overlap = iou_rotate_calculate(anchors[b], gt_boxes[b])
             overlaps[b] = overlap
 
+        gt_boxes_x = gt_boxes[:,:,2]
+        gt_boxes_y = gt_boxes[:,:,3]
+        anchors_boxes_x = anchors[:,:,2]
+        anchors_boxes_y = anchors[:,:,3]
+        gt_area_zero = (gt_boxes_x == 0) & (gt_boxes_y == 0)
+        anchors_area_zero = (anchors_boxes_x == 0) & (anchors_boxes_y == 0)
+        
+        overlaps.masked_fill_(gt_area_zero.view(batch_size, 1, K).expand(batch_size, N, K), 0)
+        overlaps.masked_fill_(anchors_area_zero.view(batch_size, N, 1).expand(batch_size, N, K), -1)
     else:
         raise ValueError('anchors input dimension is not correct.')
     return overlaps

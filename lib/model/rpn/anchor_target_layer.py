@@ -166,6 +166,7 @@ class _AnchorTargetLayer(nn.Module):
 
         labels = _unmap(labels, total_anchors, inds_inside, batch_size, fill=-1)
         bbox_targets = _unmap(bbox_targets, total_anchors, inds_inside, batch_size, fill=0)
+
         bbox_inside_weights = _unmap(bbox_inside_weights, total_anchors, inds_inside, batch_size, fill=0)
         bbox_outside_weights = _unmap(bbox_outside_weights, total_anchors, inds_inside, batch_size, fill=0)
 
@@ -174,10 +175,8 @@ class _AnchorTargetLayer(nn.Module):
         labels = labels.view(batch_size, height, width, A).permute(0,3,1,2).contiguous()
         labels = labels.view(batch_size, 1, A * height, width)
         outputs.append(labels)
-
         bbox_targets = bbox_targets.view(batch_size, height, width, A*4).permute(0,3,1,2).contiguous()
         outputs.append(bbox_targets)
-
         anchors_count = bbox_inside_weights.size(1)
         bbox_inside_weights = bbox_inside_weights.view(batch_size,anchors_count,1).expand(batch_size, anchors_count, 4)
 
