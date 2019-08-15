@@ -65,6 +65,7 @@ torch/lib/tmp_install
 torch/lib/torch_shm_manager
 torch/version.py
 models/
+logs/
 
 # IPython notebook checkpoints
 .ipynb_checkpoints
