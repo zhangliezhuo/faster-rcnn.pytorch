@@ -223,9 +223,6 @@ class dota(imdb):
         #     objs = non_diff_objs
         num_objs = len(objs)
 
-        print(filename)
-        print(num_objs)
-
         boxes_o = np.zeros((num_objs, 8), dtype=np.int32)
         boxes = np.zeros((num_objs, 4), dtype=np.int32)
         gt_classes = np.zeros((num_objs), dtype=np.int32)

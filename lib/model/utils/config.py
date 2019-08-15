@@ -66,8 +66,8 @@ __C.TRAIN.SCALES = (800,)
 __C.TRAIN.MAX_SIZE = 1000
 
 # Trim size for input images to create minibatch
-__C.TRAIN.TRIM_HEIGHT = 600
-__C.TRAIN.TRIM_WIDTH = 600
+__C.TRAIN.TRIM_HEIGHT = 800
+__C.TRAIN.TRIM_WIDTH = 800
 
 # Images to use per minibatch
 __C.TRAIN.IMS_PER_BATCH = 1

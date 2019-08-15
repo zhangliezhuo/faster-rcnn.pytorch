@@ -308,12 +308,13 @@ if __name__ == '__main__':
 
   if args.use_tfboard:
     from tensorboardX import SummaryWriter
-    logger = SummaryWriter("logs")
+    logger = SummaryWriter(log_dir='logs')
 
   for epoch in range(args.start_epoch, args.max_epochs + 1):
     # setting to train mode
     fasterRCNN.train()
     loss_temp = 0
+    loss_temp_r = 0
 
     start = time.time()
 
@@ -345,7 +346,7 @@ if __name__ == '__main__':
       rois_r, cls_r_prob, bbox_r_pred, \
       rpn_loss_cls_r, rpn_loss_box_r, \
       RCNN_loss_cls_r, RCNN_loss_bbox_r, \
-      rois_r_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, gt_boxes_r)
+      rois_r_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, gt_boxes_r, args.rotated)
       # print("fasterRCNN time:", time.time() - fasterRCNN_start)
 
       # if args.rotated:
@@ -356,17 +357,24 @@ if __name__ == '__main__':
       # rpn_loss_cls_r, rpn_loss_bbox_r, \
       # RCNN_loss_cls_r, RCNN_loss_bbox_r, \
       # rois_r_label
-
-      loss = rpn_loss_cls.mean() + rpn_loss_box.mean() \
-           + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean() \
-           + rpn_loss_cls_r.mean() + rpn_loss_box_r.mean() \
+      loss = 0
+      if not args.rotated:
+        loss = rpn_loss_cls.mean() + rpn_loss_box.mean() \
+             + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean()
+      loss_r = rpn_loss_cls_r.mean() + rpn_loss_box_r.mean() \
            + RCNN_loss_bbox_r.mean() + RCNN_loss_bbox_r.mean()
-      loss_temp += loss.item()
+      if not args.rotated:
+        loss_temp += loss.item()
+      loss_temp_r += loss_r.item()
 
+      loss += loss_r
 
       # backward
       optimizer.zero_grad()
-      loss.backward()
+      if args.rotated:
+        loss_r.backward()
+      else:
+        loss.backward()
       if args.net == "vgg16":
           clip_gradient(fasterRCNN, 10.)
       optimizer.step()
@@ -375,14 +383,23 @@ if __name__ == '__main__':
         end = time.time()
         if step > 0:
           loss_temp /= (args.disp_interval + 1)
+          loss_temp_r /= (args.disp_interval + 1)
 
         if args.mGPUs:
-          loss_rpn_cls = rpn_loss_cls.mean().item()
-          loss_rpn_box = rpn_loss_box.mean().item()
-          loss_rcnn_cls = RCNN_loss_cls.mean().item()
-          loss_rcnn_box = RCNN_loss_bbox.mean().item()
-          fg_cnt = torch.sum(rois_label.data.ne(0))
-          bg_cnt = rois_label.data.numel() - fg_cnt
+          if not args.rotated:
+            loss_rpn_cls = rpn_loss_cls.mean().item()
+            loss_rpn_box = rpn_loss_box.mean().item()
+            loss_rcnn_cls = RCNN_loss_cls.mean().item()
+            loss_rcnn_box = RCNN_loss_bbox.mean().item()
+            fg_cnt = torch.sum(rois_label.data.ne(0))
+            bg_cnt = rois_label.data.numel() - fg_cnt
+          else:
+            loss_rpn_cls = 0
+            loss_rpn_box = 0
+            loss_rcnn_cls = 0
+            loss_rcnn_box = 0
+            fg_cnt = 0
+            bg_cnt = 0
 
           loss_rpn_cls_r = rpn_loss_cls_r.mean().item()
           loss_rpn_box_r = rpn_loss_box_r.mean().item()
@@ -391,13 +408,20 @@ if __name__ == '__main__':
           fg_cnt_r = torch.sum(rois_r_label.data.ne(0))
           bg_cnt_r = rois_r_label.data.numel() - fg_cnt_r
         else:
-          loss_rpn_cls = rpn_loss_cls.item()
-          loss_rpn_box = rpn_loss_box.item()
-          loss_rcnn_cls = RCNN_loss_cls.item()
-          loss_rcnn_box = RCNN_loss_bbox.item()
-          fg_cnt = torch.sum(rois_label.data.ne(0))
-          bg_cnt = rois_label.data.numel() - fg_cnt
-
+          if not args.rotated:
+            loss_rpn_cls = rpn_loss_cls.item()
+            loss_rpn_box = rpn_loss_box.item()
+            loss_rcnn_cls = RCNN_loss_cls.item()
+            loss_rcnn_box = RCNN_loss_bbox.item()
+            fg_cnt = torch.sum(rois_label.data.ne(0))
+            bg_cnt = rois_label.data.numel() - fg_cnt
+          else:
+            loss_rpn_cls = 0
+            loss_rpn_box = 0
+            loss_rcnn_cls = 0
+            loss_rcnn_box = 0
+            fg_cnt = 0
+            bg_cnt = 0
           loss_rpn_cls_r = rpn_loss_cls_r.item()
           loss_rpn_box_r = rpn_loss_box_r.item()
           loss_rcnn_cls_r = RCNN_loss_cls_r.item()
@@ -405,8 +429,8 @@ if __name__ == '__main__':
           fg_cnt_r = torch.sum(rois_r_label.data.ne(0))
           bg_cnt_r = rois_r_label.data.numel() - fg_cnt_r
 
-        print("[session %d][epoch %2d][iter %4d/%4d] loss: %.4f, lr: %.2e" \
-                                % (args.session, epoch, step, iters_per_epoch, loss_temp, lr))
+        print("[session %d][epoch %2d][iter %4d/%4d] loss: %.4f, loss_r: %.4f, lr: %.2e" \
+                                % (args.session, epoch, step, iters_per_epoch, loss_temp, loss_temp_r, lr))
         print("\t\t\tfg/bg=(%d/%d), time cost: %f" % (fg_cnt, bg_cnt, end-start))
         print("\t\trotated fg/bg=(%d/%d), time cost: %f" % (fg_cnt_r, bg_cnt_r, end-start))
 
@@ -417,6 +441,7 @@ if __name__ == '__main__':
         if args.use_tfboard:
           info = {
             'loss': loss_temp,
+            'loss_r': loss_temp_r,
             'loss_rpn_cls': loss_rpn_cls,
             'loss_rpn_box': loss_rpn_box,
             'loss_rcnn_cls': loss_rcnn_cls,

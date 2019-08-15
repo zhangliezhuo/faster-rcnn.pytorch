@@ -68,19 +68,21 @@ class _RPN(nn.Module):
         )
         return x
 
-    def forward(self, base_feat, im_info, gt_boxes, num_boxes, gt_boxes_o):
+    def forward(self, base_feat, im_info, gt_boxes, num_boxes, gt_boxes_r, rotated):
 
         batch_size = base_feat.size(0)
 
         # return feature map after convrelu layer
         rpn_conv1 = F.relu(self.RPN_Conv(base_feat), inplace=True)
-        # get rpn classification score
-        rpn_cls_score = self.RPN_cls_score(rpn_conv1)
+        if not rotated:
+            # get rpn classification score
+            rpn_cls_score = self.RPN_cls_score(rpn_conv1)
 
-        rpn_cls_score_reshape = self.reshape(rpn_cls_score, 2)
-        rpn_cls_prob_reshape = F.softmax(rpn_cls_score_reshape, 1)
-        rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
-
+            rpn_cls_score_reshape = self.reshape(rpn_cls_score, 2)
+            rpn_cls_prob_reshape = F.softmax(rpn_cls_score_reshape, 1)
+            rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
+            # get rpn offsets to the anchor boxes
+            rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
         # get rpn classification score for rotated
         rpn_cls_score_r = self.RPN_cls_score_r(rpn_conv1)
 
@@ -88,16 +90,15 @@ class _RPN(nn.Module):
         rpn_cls_prob_r_reshape = F.softmax(rpn_cls_score_r_reshape, 1)
         rpn_cls_prob_r = self.reshape(rpn_cls_prob_r_reshape, self.nc_score_r_out)
 
-        # get rpn offsets to the anchor boxes
-        rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
 
         # get rpn offsets to the rotated anchor boxes
         rpn_bbox_r_pred = self.RPN_bbox_r_pred(rpn_conv1)
 
         # proposal layer
         cfg_key = 'TRAIN' if self.training else 'TEST'
-        rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
-                                 im_info, cfg_key))
+        if not rotated:
+            rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
+                                     im_info, cfg_key))
 
         rois_r = self.RPN_proposal_r((rpn_cls_prob_r.data, rpn_bbox_r_pred.data,
                                     im_info, cfg_key))
@@ -110,21 +111,20 @@ class _RPN(nn.Module):
         # generating training labels and build the rpn loss
         if self.training:
             assert gt_boxes is not None
+            if not rotated:
+                rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info, num_boxes))
+            rpn_data_r = self.RPN_anchor_r_target((rpn_cls_score_r.data, gt_boxes_r, im_info, num_boxes))
+            if not rotated:
+                # compute classification loss
+                rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
+                rpn_label = rpn_data[0].view(batch_size, -1)
 
-            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info, num_boxes))
-            rpn_data_r = self.RPN_anchor_r_target((rpn_cls_score_r.data, gt_boxes_o, im_info, num_boxes))
-
-
-            # compute classification loss
-            rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
-            rpn_label = rpn_data[0].view(batch_size, -1)
-
-            rpn_keep = Variable(rpn_label.view(-1).ne(-1).nonzero().view(-1))
-            rpn_cls_score = torch.index_select(rpn_cls_score.view(-1,2), 0, rpn_keep)
-            rpn_label = torch.index_select(rpn_label.view(-1), 0, rpn_keep.data)
-            rpn_label = Variable(rpn_label.long())
-            self.rpn_loss_cls = F.cross_entropy(rpn_cls_score, rpn_label)
-            fg_cnt = torch.sum(rpn_label.data.ne(0))
+                rpn_keep = Variable(rpn_label.view(-1).ne(-1).nonzero().view(-1))
+                rpn_cls_score = torch.index_select(rpn_cls_score.view(-1,2), 0, rpn_keep)
+                rpn_label = torch.index_select(rpn_label.view(-1), 0, rpn_keep.data)
+                rpn_label = Variable(rpn_label.long())
+                self.rpn_loss_cls = F.cross_entropy(rpn_cls_score, rpn_label)
+                fg_cnt = torch.sum(rpn_label.data.ne(0))
             # compute classification rpn_cls_score_r_reshape for rotated box
             rpn_cls_score_r = rpn_cls_score_r_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
             rpn_label_r = rpn_data_r[0].view(batch_size, -1)
@@ -136,15 +136,15 @@ class _RPN(nn.Module):
             self.rpn_loss_cls_r = F.cross_entropy(rpn_cls_score_r, rpn_label_r)
             fg_cnt_r = torch.sum(rpn_label_r.data.ne(0))
 
+            if not rotated:
+                rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = rpn_data[1:]
 
-            rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = rpn_data[1:]
-
-            # compute bbox regression loss
-            rpn_bbox_inside_weights = Variable(rpn_bbox_inside_weights)
-            rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
-            rpn_bbox_targets = Variable(rpn_bbox_targets)
-            self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,
-                                                            rpn_bbox_outside_weights, sigma=3, dim=[1,2,3])
+                # compute bbox regression loss
+                rpn_bbox_inside_weights = Variable(rpn_bbox_inside_weights)
+                rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
+                rpn_bbox_targets = Variable(rpn_bbox_targets)
+                self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,
+                                                                rpn_bbox_outside_weights, sigma=3, dim=[1,2,3])
 
             rpn_bbox_r_targets, rpn_bbox_r_inside_weights, rpn_bbox_r_outside_weights = rpn_data_r[1:]
             # compute rotated bbox regression loss
@@ -154,5 +154,6 @@ class _RPN(nn.Module):
 
             self.rpn_loss_box_r = _smooth_l1_loss(rpn_bbox_r_pred, rpn_bbox_r_targets, rpn_bbox_r_inside_weights,
                                                 rpn_bbox_r_outside_weights, sigma=3, dim=[1,2,3])
-
-        return rois, self.rpn_loss_cls, self.rpn_loss_box, rois_r, self.rpn_loss_cls_r, self.rpn_loss_box_r
+        if not rotated:
+            return rois, self.rpn_loss_cls, self.rpn_loss_box, rois_r, self.rpn_loss_cls_r, self.rpn_loss_box_r
+        return None, self.rpn_loss_cls, self.rpn_loss_box, rois_r, self.rpn_loss_cls_r, self.rpn_loss_box_r

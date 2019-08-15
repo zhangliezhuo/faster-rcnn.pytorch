@@ -41,7 +41,7 @@ class _fasterRCNN(nn.Module):
         self.RCNN_roi_pool = ROIPool((cfg.POOLING_SIZE, cfg.POOLING_SIZE), 1.0/16.0)
         self.RCNN_roi_align = ROIAlign((cfg.POOLING_SIZE, cfg.POOLING_SIZE), 1.0/16.0, 0)
 
-    def forward(self, im_data, im_info, gt_boxes, num_boxes, gt_boxes_r=None):
+    def forward(self, im_data, im_info, gt_boxes, num_boxes, gt_boxes_r=None, rotated=False):
         batch_size = im_data.size(0)
 
         im_info = im_info.data
@@ -54,17 +54,18 @@ class _fasterRCNN(nn.Module):
 
         # feed base feature map tp RPN to obtain rois
         rois, rpn_loss_cls, rpn_loss_bbox,\
-         rois_r, rpn_loss_cls_r, rpn_loss_bbox_r = self.RCNN_rpn(base_feat, im_info, gt_boxes, num_boxes, gt_boxes_r)
+         rois_r, rpn_loss_cls_r, rpn_loss_bbox_r = self.RCNN_rpn(base_feat, im_info, gt_boxes, num_boxes, gt_boxes_r, rotated)
 
         # if it is training phrase, then use ground trubut bboxes for refining
         if self.training:
-            roi_data = self.RCNN_proposal_target(rois, gt_boxes, num_boxes)
-            rois, rois_label, rois_target, rois_inside_ws, rois_outside_ws = roi_data
+            if not rotated:
+                roi_data = self.RCNN_proposal_target(rois, gt_boxes, num_boxes)
+                rois, rois_label, rois_target, rois_inside_ws, rois_outside_ws = roi_data
 
-            rois_label = Variable(rois_label.view(-1).long())
-            rois_target = Variable(rois_target.view(-1, rois_target.size(2)))
-            rois_inside_ws = Variable(rois_inside_ws.view(-1, rois_inside_ws.size(2)))
-            rois_outside_ws = Variable(rois_outside_ws.view(-1, rois_outside_ws.size(2)))
+                rois_label = Variable(rois_label.view(-1).long())
+                rois_target = Variable(rois_target.view(-1, rois_target.size(2)))
+                rois_inside_ws = Variable(rois_inside_ws.view(-1, rois_inside_ws.size(2)))
+                rois_outside_ws = Variable(rois_outside_ws.view(-1, rois_outside_ws.size(2)))
             roi_data_r = self.RCNN_proposal_target_r(rois_r, gt_boxes_r, num_boxes)
             rois_r, rois_r_label, rois_r_target, rois_r_inside_ws, rois_r_outside_ws = roi_data_r
 
@@ -90,38 +91,45 @@ class _fasterRCNN(nn.Module):
         from model.utils.bbox_convert import convert_r_to_h
         rois_rh = convert_r_to_h(rois_r)
         # print(rois_rh.size())
-        rois = Variable(rois)
+        if not rotated:
+            rois = Variable(rois)
         rois_r = Variable(rois_r)
         # do roi pooling based on predicted rois
 
         if cfg.POOLING_MODE == 'align':
-            pooled_feat = self.RCNN_roi_align(base_feat, rois.view(-1, 5))
+            if not rotated:
+                pooled_feat = self.RCNN_roi_align(base_feat, rois.view(-1, 5))
             pooled_feat_r = self.RCNN_roi_align(base_feat, rois_rh.view(-1, 5))
         elif cfg.POOLING_MODE == 'pool':
-            pooled_feat = self.RCNN_roi_pool(base_feat, rois.view(-1,5))
+            if not rotated:
+                pooled_feat = self.RCNN_roi_pool(base_feat, rois.view(-1,5))
             pooled_feat_r = self.RCNN_roi_pool(base_feat, rois_rh.view(-1, 5))
 
         # feed pooled features to top model
-        pooled_feat = self._head_to_tail(pooled_feat)
+        if not rotated:
+            pooled_feat = self._head_to_tail(pooled_feat)
         pooled_feat_r = self._head_to_tail(pooled_feat_r)
 
         # compute bbox offset
-        bbox_pred = self.RCNN_bbox_pred(pooled_feat)
+        if not rotated:
+            bbox_pred = self.RCNN_bbox_pred(pooled_feat)
         bbox_r_pred = self.RCNN_bbox_r_pred(pooled_feat_r)
 
         if self.training and not self.class_agnostic:
-            # select the corresponding columns according to roi labels
-            bbox_pred_view = bbox_pred.view(bbox_pred.size(0), int(bbox_pred.size(1) / 4), 4)
-            bbox_pred_select = torch.gather(bbox_pred_view, 1, rois_label.view(rois_label.size(0), 1, 1).expand(rois_label.size(0), 1, 4))
-            bbox_pred = bbox_pred_select.squeeze(1)
+            if not rotated:
+                # select the corresponding columns according to roi labels
+                bbox_pred_view = bbox_pred.view(bbox_pred.size(0), int(bbox_pred.size(1) / 4), 4)
+                bbox_pred_select = torch.gather(bbox_pred_view, 1, rois_label.view(rois_label.size(0), 1, 1).expand(rois_label.size(0), 1, 4))
+                bbox_pred = bbox_pred_select.squeeze(1)
 
             bbox_r_pred_view = bbox_r_pred.view(bbox_r_pred.size(0), int(bbox_r_pred.size(1) / 5), 5)
             bbox_r_pred_select = torch.gather(bbox_r_pred_view, 1, rois_r_label.view(rois_r_label.size(0), 1, 1).expand(rois_r_label.size(0), 1, 5))
             bbox_r_pred = bbox_r_pred_select.squeeze(1)
 
+        if not rotated:
         # compute object classification probability
-        cls_score = self.RCNN_cls_score(pooled_feat)
-        cls_prob = F.softmax(cls_score, 1)
+            cls_score = self.RCNN_cls_score(pooled_feat)
+            cls_prob = F.softmax(cls_score, 1)
 
         # compute r object classification probability
         cls_r_score = self.RCNN_cls_score(pooled_feat_r)
@@ -134,23 +142,26 @@ class _fasterRCNN(nn.Module):
         RCNN_loss_bbox_r = 0
 
         if self.training:
-            # classification loss
-            RCNN_loss_cls = F.cross_entropy(cls_score, rois_label)
-            # bounding box regression L1 loss
-            RCNN_loss_bbox = _smooth_l1_loss(bbox_pred, rois_target, rois_inside_ws, rois_outside_ws)
+            if not rotated:
+                # classification loss
+                RCNN_loss_cls = F.cross_entropy(cls_score, rois_label)
+                # bounding box regression L1 loss
+                RCNN_loss_bbox = _smooth_l1_loss(bbox_pred, rois_target, rois_inside_ws, rois_outside_ws)
 
             # classification loss rotated
             RCNN_loss_cls_r = F.cross_entropy(cls_r_score, rois_r_label)
             # bounding box regression L1 loss
             # print(rois_r_inside_ws)
             RCNN_loss_bbox_r = _smooth_l1_loss(bbox_r_pred, rois_r_target, rois_r_inside_ws, rois_r_outside_ws)
-
-        cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
-        bbox_pred = bbox_pred.view(batch_size, rois.size(1), -1)
+        if not rotated:
+            cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
+            bbox_pred = bbox_pred.view(batch_size, rois.size(1), -1)
 
         cls_r_prob = cls_r_prob.view(batch_size, rois_r.size(1), -1)
         bbox_r_pred = bbox_r_pred.view(batch_size, rois_r.size(1), -1)
-
+        if rotated:
+            rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox, RCNN_loss_cls, RCNN_loss_bbox, rois_label = \
+            None, None, None, None, None, None, None, None
         return rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox, RCNN_loss_cls, RCNN_loss_bbox, rois_label, \
         rois_r, cls_r_prob, bbox_r_pred, rpn_loss_cls_r, rpn_loss_bbox_r, RCNN_loss_cls_r, RCNN_loss_bbox_r, rois_r_label
 

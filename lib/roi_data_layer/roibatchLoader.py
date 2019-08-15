@@ -99,8 +99,8 @@ class roibatchLoader(data.Dataset):
             if ratio < 1:
                 # this means that data_width << data_height, we need to crop the
                 # data_height
-                min_y = int(torch.min(gt_boxes[:,1]))
-                max_y = int(torch.max(gt_boxes[:,3]))
+                min_y = max(int(torch.min(gt_boxes[:,1])), 0)
+                max_y = min(int(torch.max(gt_boxes[:,3])), data_height)
                 trim_size = int(np.floor(data_width / ratio))
                 if trim_size > data_height:
                     trim_size = data_height                
@@ -122,6 +122,7 @@ class roibatchLoader(data.Dataset):
                         else:
                             y_s = np.random.choice(range(min_y, min_y+y_s_add))
                 # crop the image
+
                 data = data[:, y_s:(y_s + trim_size), :, :]
 
                 # shift y coordiante of gt_boxes
@@ -138,8 +139,8 @@ class roibatchLoader(data.Dataset):
             else:
                 # this means that data_width >> data_height, we need to crop the
                 # data_width
-                min_x = int(torch.min(gt_boxes[:,0]))
-                max_x = int(torch.max(gt_boxes[:,2]))
+                min_x = max(int(torch.min(gt_boxes[:,0])), 0)
+                max_x = min(int(torch.max(gt_boxes[:,2])), data_width)
                 trim_size = int(np.ceil(data_height * ratio))
                 if trim_size > data_width:
                     trim_size = data_width                
@@ -180,7 +181,8 @@ class roibatchLoader(data.Dataset):
 
             padding_data = torch.FloatTensor(int(np.ceil(data_width / ratio)), \
                                              data_width, 3).zero_()
-
+            # print(data_height)
+            # print(data.size())
             padding_data[:data_height, :, :] = data[0]
             # update im_info
             im_info[0, 0] = padding_data.size(0)
